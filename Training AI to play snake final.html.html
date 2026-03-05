@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Snake Evolver — Neural Evolution (1000 default)</title>
+  <style>
+    :root{--bg:#0f1724;--panel:#0b1220;--muted:#9aa7bf;--accent:#22c55e}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Arial;background:linear-gradient(180deg,#071025 0%, #041425 100%);color:#dbe7f5}
+    .app{display:flex;gap:12px;padding:12px}
+    .controls{width:360px;background:rgba(255,255,255,0.03);padding:14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,0.6)}
+    .controls {flex: 0 0 360px; /* fixed width, no shrink */}
+    .grid-wrap {
+  flex: 1;
+  min-width: 0; /* prevent overflow issues */
+  overflow-x: auto; /* allow horizontal scroll if needed */
+}
+    .grid-wrap{flex:1;display:flex;flex-direction:column;gap:12px}
+    h1{margin:0 0 8px 0;font-size:18px}
+    label{display:block;font-size:12px;color:var(--muted);margin-top:8px}
+    input[type=range]{width:100%}
+    .row{display:flex;gap:8px;align-items:center}
+    .btn{padding:8px 12px;border-radius:8px;background:var(--accent);border:none;color:#042018;cursor:pointer;font-weight:600}
+    .small-btn{padding:6px 8px;font-size:13px}
+    .stats{margin-top:8px;font-size:13px}
+    .instancesGrid{display:grid;gap:10px;align-content:start}
+    .instance{background:rgba(255,255,255,0.02);padding:6px;border-radius:6px;display:flex;flex-direction:column;align-items:center}
+    canvas{background:#03070a;border-radius:4px}
+    .muted{color:var(--muted);font-size:13px}
+    .footer{margin-top:8px;font-size:12px;color:var(--muted)}
+    .control-row{display:flex;gap:8px}
+    input[type=number]{width:100%}
+    .flex{display:flex;gap:8px}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="controls">
+      <h1>Snake Evolver — Neural + GA (Defaults: population 1000, moves 1000)</h1>
+      <div class="muted">Train many snakes in your browser. Rendering many canvases may be heavy — use "View only best" for inspection.</div>
+
+      <label>Population</label>
+      <input id="population" type="number" min="1" max="2000" value="1000" />
+
+      <div class="control-row">
+        <div style="width:0px;">
+          <label>1</label>
+          <input id="moveLimit" type="number" min="10" max="50000" value="10000" />
+        </div>
+        <div style="flex:1">
+          <label>Grid size</label>
+          <input id="gridSize" type="number" min="6" max="40" value="16" />
+        </div>
+      </div>
+
+      <label>Mutation rate</label>
+      <input id="mutationRate" type="range" min="0" max="1" step="0.01" value="0.15" />
+      <div class="row"><div class="muted">Value: <span id="mutRateVal">0.15</span></div></div>
+
+      <label>Speed (steps per frame)</label>
+      <input id="speedSlider" type="range" min="1" max="200" step="1" value="4" />
+      <div class="row"><div class="muted">Value: <span id="speedVal">4</span></div></div>
+
+      <div class="row" style="margin-top:6px">
+        <input type="checkbox" id="viewBestOnly" /> <label for="viewBestOnly">View only best snake</label>
+      </div>
+
+      <label>Rewards & Punishments</label>
+      <div class="flex">
+        <div style="flex:1">
+          <label>Eat reward</label>
+          <input id="rewardEat" type="number" step="1" value="150" />
+        </div>
+        <div style="flex:1">
+          <label>Die penalty</label>
+          <input id="penaltyDie" type="number" step="1" value="-300" />
+        </div>
+        <div style="flex:1">
+          <label>Away penalty</label>
+          <input id="penaltyAway" type="number" step="0.1" value="-0.4" />
+        </div>
+      </div>
+
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button id="startBtn" class="btn">Start</button>
+        <button id="pauseBtn" class="btn small-btn">Pause</button>
+        <button id="resetBtn" class="btn small-btn">Reset</button>
+        <button id="saveBtn" class="btn small-btn">Save</button>
+        <input type="file" id="loadFile" style="display:none;" accept=".json" />
+        <button id="loadBtn" class="btn small-btn">Load</button>
+      </div>
+
+      <div class="stats">
+        <div>Generation: <span id="generation">0</span></div>
+        <div>Best score (ever): <span id="bestEver">0</span></div>
+        <div>Best this gen: <span id="bestGen">0</span></div>
+        <div>Avg fitness: <span id="avgFit">0</span></div>
+        <hr style="border:0;border-top:1px solid rgba(255,255,255,0.08);margin:6px 0;">
+        <div>Best food (ever): <span id="bestFoodEver">0</span></div>
+        <div>Best food (this gen): <span id="bestFoodGen">0</span></div>
+        <div>Avg food eaten: <span id="avgFood">0</span></div>
+        <hr style="border:0;border-top:1px solid rgba(255,255,255,0.1);margin:10px 0;">
+        <div class="muted">Graph</div>
+        <div id="graphControls" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+        <button class="btn small-btn" id="graphFoodBtn">Best Food</button>
+        <button class="btn small-btn" id="graphFitnessBtn">Best Fitness</button>
+        <button class="btn small-btn" id="graphAvgFoodBtn">Avg Food</button>
+        <button class="btn small-btn" id="graphHideBtn">Hide Graph</button>
+      </div>
+        <canvas id="graphCanvas" width="320" height="150" style="margin-top:8px;display:none;background:#03070a;border-radius:6px;"></canvas>
+      </div>
+    </div>
+
+    <div class="grid-wrap">
+      <div class="muted">Instances</div>
+      <div id="instancesGrid" class="instancesGrid"></div>
+      <div id="bestWrap" style="display:none;align-items:center;gap:8px;">
+        <canvas id="bestCanvas" width="300" height="300" style="background:#03070a;border-radius:6px"></canvas>
+        <div id="bestInfo" class="muted">best info</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* -------------------------------------------------------
+   The main classes (Brain, SnakeGame, Individual, Population)
+   — leave your existing ones unchanged here.
+   ------------------------------------------------------- */
+// KEEP your full existing class definitions (Brain, SnakeGame, Individual, Population)
+// exactly as they already are in your version.
+// I'm only adding new save/load helpers *below*.
+
+// -----------------------------
+// Utilities
+// -----------------------------
+function randn_bm() { let u=0,v=0; while(u===0) u=Math.random(); while(v===0) v=Math.random(); return Math.sqrt(-2.0*Math.log(u))*Math.cos(2.0*Math.PI*v); }
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+
+// -----------------------------
+// Brain (simple feed-forward)
+// -----------------------------
+class Brain {
+  constructor(inputSize=8, hiddenSize=12, outputSize=4, weights=null){
+    this.i = inputSize; this.h = hiddenSize; this.o = outputSize;
+    this.wih = new Float32Array(this.i * this.h);
+    this.who = new Float32Array(this.h * this.o);
+    this.bh = new Float32Array(this.h);
+    this.bo = new Float32Array(this.o);
+    if(weights) this.setFromArray(weights); else this.randomize();
+  }
+  randomize(){
+    for(let k=0;k<this.wih.length;k++) this.wih[k] = randn_bm()*0.5;
+    for(let k=0;k<this.who.length;k++) this.who[k] = randn_bm()*0.5;
+    for(let k=0;k<this.bh.length;k++) this.bh[k] = randn_bm()*0.1;
+    for(let k=0;k<this.bo.length;k++) this.bo[k] = randn_bm()*0.1;
+  }
+  toArray(){
+    const arr = new Float32Array(this.wih.length + this.who.length + this.bh.length + this.bo.length);
+    let idx=0; arr.set(this.wih, idx); idx+=this.wih.length; arr.set(this.who, idx); idx+=this.who.length; arr.set(this.bh, idx); idx+=this.bh.length; arr.set(this.bo, idx);
+    return arr;
+  }
+  setFromArray(arr){
+    let idx=0; this.wih.set(arr.subarray(idx, idx+this.wih.length)); idx+=this.wih.length; this.who.set(arr.subarray(idx, idx+this.who.length)); idx+=this.who.length; this.bh.set(arr.subarray(idx, idx+this.bh.length)); idx+=this.bh.length; this.bo.set(arr.subarray(idx, idx+this.bo.length));
+  }
+  predict(input){
+    const h = new Float32Array(this.h);
+    for(let j=0;j<this.h;j++){
+      let s = this.bh[j];
+      for(let k=0;k<this.i;k++) s += input[k] * this.wih[k + j*this.i];
+      h[j] = Math.tanh(s);
+    }
+    const out = new Float32Array(this.o);
+    for(let j=0;j<this.o;j++){
+      let s = this.bo[j];
+      for(let k=0;k<this.h;k++) s += h[k] * this.who[k + j*this.h];
+      out[j] = s;
+    }
+    return out;
+  }
+}
+
+// -----------------------------
+// Snake Game
+// -----------------------------
+class SnakeGame {
+  constructor(gridSize=16, moveLimit=10000){ this.gridSize=gridSize; this.reset(moveLimit); }
+  reset(moveLimit=1000){
+    this.moveLimit = moveLimit; this.score = 0; this.moves = 0; this.alive = true; this.fitness = 0;
+    const mid = Math.floor(this.gridSize/2);
+    this.snake = [{x:mid,y:mid}]; this.dir = {x:1,y:0}; this.placeFood(); this.previousDist = this.distToFood();
+  }
+  placeFood(){
+    while(true){
+      const fx = Math.floor(Math.random()*this.gridSize);
+      const fy = Math.floor(Math.random()*this.gridSize);
+      if(!this.snake.some(s=>s.x===fx && s.y===fy)){ this.food={x:fx,y:fy}; break; }
+    }
+  }
+  step(action){
+    if(!this.alive) return;
+    const mapping = [{x:0,y:-1},{x:1,y:0},{x:0,y:1},{x:-1,y:0}];
+    const newDir = mapping[action];
+    if(this.snake.length>1){
+      const rev = (newDir.x === -this.dir.x && newDir.y === -this.dir.y);
+      if(!rev) this.dir = newDir;
+    } else this.dir = newDir;
+
+    const head = {x: this.snake[0].x + this.dir.x, y: this.snake[0].y + this.dir.y};
+    this.moves += 1;
+    if(head.x<0 || head.x>=this.gridSize || head.y<0 || head.y>=this.gridSize){ this.alive=false; return; }
+    if(this.snake.some(p=>p.x===head.x && p.y===head.y)){ this.alive=false; return; }
+    this.snake.unshift(head);
+
+    if(head.x===this.food.x && head.y===this.food.y){ this.score+=1; this.placeFood(); }
+    else this.snake.pop();
+
+    if(this.moves >= this.moveLimit) this.alive=false;
+  }
+  distToFood(){ const h = this.snake[0]; return Math.hypot(h.x - this.food.x, h.y - this.food.y); }
+  getInputs(){
+    const head = this.snake[0];
+    const dx = (this.food.x - head.x) / this.gridSize;
+    const dy = (this.food.y - head.y) / this.gridSize;
+    const dangers = [
+      (head.y-1<0) || this.snake.some(p=>p.x===head.x && p.y===head.y-1) ? 1:0,
+      (head.x+1>=this.gridSize) || this.snake.some(p=>p.x===head.x+1 && p.y===head.y) ? 1:0,
+      (head.y+1>=this.gridSize) || this.snake.some(p=>p.x===head.x && p.y===head.y+1) ? 1:0,
+      (head.x-1<0) || this.snake.some(p=>p.x===head.x-1 && p.y===head.y) ? 1:0
+    ];
+    const dirx = this.dir.x; const diry = this.dir.y;
+    return new Float32Array([dx,dy,dangers[0],dangers[1],dangers[2],dangers[3], dirx, diry]);
+  }
+}
+
+// -----------------------------
+// Individual
+// -----------------------------
+class Individual {
+  constructor(gridSize, moveLimit, brain=null){ this.game = new SnakeGame(gridSize, moveLimit); this.brain = brain || new Brain(); this.genome = this.brain.toArray(); }
+  reset(){ this.game.reset(this.game.moveLimit); }
+  act(){ if(!this.game.alive) return; const inputs = this.game.getInputs(); const out = this.brain.predict(inputs); let best=0; for(let i=1;i<out.length;i++) if(out[i]>out[best]) best=i; this.game.step(best); }
+  computeFitness(rewardConfig){ const g=this.game; let fit=0; fit += g.score * rewardConfig.eat; if(!g.alive && g.moves < g.moveLimit) fit += rewardConfig.die; const dist = g.distToFood(); if(dist > g.previousDist) fit += rewardConfig.away; if(g.alive) fit += 0.1; fit += 0.01 * g.moves; g.fitness = fit; g.previousDist = dist; return fit; }
+}
+
+// -----------------------------
+// Population & evolution
+// -----------------------------
+class Population {
+  constructor(size=1000, gridSize=16, moveLimit=1000, mutationRate=0.15, rewardConfig=null){
+    this.size=size; this.gridSize=gridSize; this.moveLimit=moveLimit; this.mutationRate=mutationRate;
+    this.rewardConfig = rewardConfig || {eat:150, die:-300, away:-0.4};
+    this.individuals = [];
+    for(let i=0;i<size;i++) this.individuals.push(new Individual(gridSize, moveLimit));
+    this.generation = 0; this.bestEver = null; this.bestEverScore = -Infinity; this.bestThisGen = null; this.avgFitness = 0;
+    this.bestFoodEver = 0;
+  }
+  resetAll(){ this.individuals.forEach(ind=>ind.reset()); }
+  stepAll(){ this.individuals.forEach(ind=>{ if(ind.game.alive) ind.act(); }); }
+  evaluateAll(){
+    let sum=0; let best=null; let bestVal=-Infinity; let sumFood=0; let bestFoodGen = -Infinity;
+    for(const ind of this.individuals){ const f = ind.computeFitness(this.rewardConfig); sum+=f; if(f>bestVal){ bestVal=f; best=ind; } sumFood += ind.game.score; if(ind.game.score > bestFoodGen) bestFoodGen = ind.game.score; }
+    const avg = sum/this.individuals.length;
+    const avgFood = sumFood/this.individuals.length;
+    if(bestVal > this.bestEverScore){ this.bestEverScore = bestVal; this.bestEver = best; }
+    if(bestFoodGen > this.bestFoodEver) this.bestFoodEver = bestFoodGen;
+    this.bestThisGen = best; this.avgFitness = avg;
+    // expose food stats
+    this.bestFoodGen = bestFoodGen;
+    this.avgFood = avgFood;
+    return {best, bestVal, avg, bestFoodGen, avgFood};
+  }
+  allDeadOrDone(){ return this.individuals.every(ind=>!ind.game.alive); }
+  produceNextGeneration(){
+    const parent = this.bestThisGen || this.bestEver;
+    if(!parent) return;
+    const parentGenome = parent.brain.toArray();
+    const newInds = [];
+    for(let i=0;i<this.size;i++){
+      const newGenome = new Float32Array(parentGenome.length);
+      for(let k=0;k<parentGenome.length;k++){
+        newGenome[k] = parentGenome[k] + randn_bm() * this.mutationRate;
+      }
+      const brain = new Brain(parent.brain.i,parent.brain.h,parent.brain.o,newGenome);
+      newInds.push(new Individual(this.gridSize,this.moveLimit,brain));
+    }
+    this.individuals = newInds;
+    this.generation += 1;
+  }
+}
+
+/* -------------------------------------------------------
+   SAVE & LOAD SYSTEM — NEW
+   ------------------------------------------------------- */
+function savePopulation(pop) {
+  const data = {
+    generation: pop.generation,
+    bestEverScore: pop.bestEverScore,
+    bestFoodEver: pop.bestFoodEver,
+    mutationRate: pop.mutationRate,
+    gridSize: pop.gridSize,
+    moveLimit: pop.moveLimit,
+    rewardConfig: pop.rewardConfig,
+    individuals: pop.individuals.map(ind => ({
+      genome: Array.from(ind.brain.toArray()),
+      score: ind.game.score,
+      fitness: ind.game.fitness
+    }))
+  };
+  const blob = new Blob([JSON.stringify(data)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `snake_model_gen${pop.generation}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function loadPopulationFromFile(file) {
+  const text = await file.text();
+  const data = JSON.parse(text);
+
+  const pop = new Population(
+    data.individuals.length,
+    data.gridSize,
+    data.moveLimit,
+    data.mutationRate,
+    data.rewardConfig
+  );
+
+  pop.generation = data.generation;
+  pop.bestEverScore = data.bestEverScore;
+  pop.bestFoodEver = data.bestFoodEver;
+
+  pop.individuals = data.individuals.map(obj => {
+    const brain = new Brain(8, 12, 4, new Float32Array(obj.genome));
+    const ind = new Individual(data.gridSize, data.moveLimit, brain);
+    ind.game.score = obj.score || 0;
+    ind.game.fitness = obj.fitness || 0;
+    return ind;
+  });
+
+  pop.bestThisGen = pop.individuals.reduce((a, b) => a.game.fitness > b.game.fitness ? a : b);
+  pop.bestEver = pop.bestThisGen;
+
+  return pop;
+}
+
+/* -------------------------------------------------------
+   UI & TRAINING CONTROLS
+   (Your existing start/pause/reset/render logic goes here)
+   ------------------------------------------------------- */
+
+// Example integration: if your code defines `population` globally, this adds Save/Load.
+
+// -----------------------------
+// UI glue and rendering
+// -----------------------------
+const populationEl = document.getElementById('population');
+const moveLimitEl = document.getElementById('moveLimit');
+const gridSizeEl = document.getElementById('gridSize');
+const mutationRateEl = document.getElementById('mutationRate');
+const mutRateVal = document.getElementById('mutRateVal');
+const rewardEatEl = document.getElementById('rewardEat');
+const penaltyDieEl = document.getElementById('penaltyDie');
+const penaltyAwayEl = document.getElementById('penaltyAway');
+const startBtn = document.getElementById('startBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+const resetBtn = document.getElementById('resetBtn');
+const generationEl = document.getElementById('generation');
+const bestEverEl = document.getElementById('bestEver');
+const bestGenEl = document.getElementById('bestGen');
+const avgFitEl = document.getElementById('avgFit');
+const bestFoodEverEl = document.getElementById('bestFoodEver');
+const bestFoodGenEl = document.getElementById('bestFoodGen');
+const avgFoodEl = document.getElementById('avgFood');
+const instancesGrid = document.getElementById('instancesGrid');
+const bestWrap = document.getElementById('bestWrap');
+const bestCanvas = document.getElementById('bestCanvas');
+const bestInfo = document.getElementById('bestInfo');
+const speedSlider = document.getElementById('speedSlider');
+const speedVal = document.getElementById('speedVal');
+const viewBestOnlyEl = document.getElementById('viewBestOnly');
+
+let running = false;
+let rafId = null;
+let canvasItems = [];
+let stepsPerFrame = parseInt(speedSlider.value) || 4;
+
+mutRateVal.textContent = parseFloat(mutationRateEl.value).toFixed(2);
+speedVal.textContent = stepsPerFrame;
+
+function buildPopulation(){
+  const size = parseInt(populationEl.value);
+  const gridSize = parseInt(gridSizeEl.value);
+  const moveLimit = parseInt(moveLimitEl.value);
+  const mutationRate = parseFloat(mutationRateEl.value);
+  const rewardCfg = {eat: parseFloat(rewardEatEl.value), die: parseFloat(penaltyDieEl.value), away: parseFloat(penaltyAwayEl.value)};
+
+  population = new Population(size, gridSize, moveLimit, mutationRate, rewardCfg);
+
+  instancesGrid.innerHTML = '';
+  canvasItems = [];
+
+  const cols = Math.ceil(Math.sqrt(size));
+  instancesGrid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+
+  for(let i=0;i<size;i++){
+    const wrap = document.createElement('div'); wrap.className = 'instance';
+    const canvas = document.createElement('canvas');
+    // scale canvas reasonably depending on how many
+    const displaySize = Math.max(40, Math.min(160, Math.floor(400/Math.sqrt(size))));
+    canvas.width = canvas.height = displaySize;
+    const ctx = canvas.getContext('2d');
+    const info = document.createElement('div'); info.className='muted'; info.style.marginTop='6px'; info.textContent='score: 0';
+    wrap.appendChild(canvas); wrap.appendChild(info); instancesGrid.appendChild(wrap);
+    canvasItems.push({canvas,ctx,info,ind:population.individuals[i]});
+  }
+
+  bestWrap.style.display = viewBestOnlyEl.checked ? 'flex' : 'none';
+  instancesGrid.style.display = viewBestOnlyEl.checked ? 'none' : 'grid';
+
+  updateStatsUI();
+}
+
+function renderInstance(ctx, ind, canvas){
+  const sz = ind.game.gridSize; const cw = canvas.width; const ch = canvas.height;
+  ctx.clearRect(0,0,cw,ch);
+  const cellW = cw / sz; const cellH = ch / sz;
+  ctx.fillStyle = '#02101a'; ctx.fillRect(0,0,cw,ch);
+  // food
+  ctx.fillStyle = '#ff5959'; ctx.fillRect(ind.game.food.x*cellW, ind.game.food.y*cellH, cellW, cellH);
+  // snake body
+  for(let i=ind.game.snake.length-1;i>=0;i--){ const p = ind.game.snake[i]; ctx.fillStyle = (i===0)?'#98ffb3':'#3fb37f'; ctx.fillRect(p.x*cellW+1, p.y*cellH+1, cellW-2, cellH-2); }
+  ctx.strokeStyle='rgba(255,255,255,0.03)'; ctx.lineWidth=1; ctx.strokeRect(0,0,cw,ch);
+}
+
+function updateStatsUI(){
+  generationEl.textContent = population?population.generation:0;
+  bestEverEl.textContent = population?Math.round(population.bestEverScore*100)/100:0;
+  bestGenEl.textContent = population && population.bestThisGen?Math.round(population.bestThisGen.game.fitness*100)/100:0;
+  avgFitEl.textContent = population?Math.round((population.avgFitness||0)*100)/100:0;
+  bestFoodEverEl.textContent = population?population.bestFoodEver:0;
+  bestFoodGenEl.textContent = population?population.bestFoodGen:0;
+  avgFoodEl.textContent = population?population.avgFood:0.0;
+}
+
+function stepTick(){
+  if(!population) return;
+  for(let s=0;s<stepsPerFrame;s++){
+    population.stepAll();
+    population.evaluateAll();
+    if(population.allDeadOrDone()){
+      // when generation ends, update UI-visible stats from population
+      population.produceNextGeneration();
+      // remap canvas items
+      for(let i=0;i<canvasItems.length;i++) if(population.individuals[i]) canvasItems[i].ind = population.individuals[i];
+    }
+  }
+
+  if(viewBestOnlyEl.checked){
+    instancesGrid.style.display = 'none'; bestWrap.style.display = 'flex';
+    const best = population.bestThisGen || population.bestEver;
+    if(best){
+      const ctx = bestCanvas.getContext('2d'); renderInstance(ctx, best, bestCanvas);
+      bestInfo.textContent = `score: ${best.game.score} moves:${best.game.moves} fitness:${(best.game.fitness||0).toFixed(2)} food:${best.game.score}`;
+    }
+  } else {
+    instancesGrid.style.display = 'grid'; bestWrap.style.display = 'none';
+    for(const c of canvasItems){ renderInstance(c.ctx, c.ind, c.canvas); c.info.textContent = `score: ${c.ind.game.score} moves:${c.ind.game.moves}`; }
+  }
+
+  // update food stats and other UI values
+  updateStatsUI();
+}
+
+function loop(){ stepTick(); if(running) rafId = requestAnimationFrame(loop); }
+
+// Controls
+startBtn.addEventListener('click', ()=>{
+  if(!population) buildPopulation();
+  if(!running){ running = true; cancelAnimationFrame(rafId); rafId = requestAnimationFrame(loop); }
+});
+
+pauseBtn.addEventListener('click', ()=>{ running = !running; pauseBtn.textContent = running? 'Pause' : 'Resume'; if(running){ cancelAnimationFrame(rafId); rafId = requestAnimationFrame(loop); } });
+
+resetBtn.addEventListener('click', ()=>{ if(population){ population.generation = 0; population.bestEver = null; population.bestEverScore = -Infinity; population.bestFoodEver = 0; buildPopulation(); } });
+
+mutationRateEl.addEventListener('input', ()=>{ mutRateVal.textContent = parseFloat(mutationRateEl.value).toFixed(2); if(population) population.mutationRate = parseFloat(mutationRateEl.value); });
+
+speedSlider.addEventListener('input', ()=>{ stepsPerFrame = parseInt(speedSlider.value); speedVal.textContent = stepsPerFrame; });
+
+viewBestOnlyEl.addEventListener('change', ()=>{ if(population){ instancesGrid.style.display = viewBestOnlyEl.checked ? 'none' : 'grid'; bestWrap.style.display = viewBestOnlyEl.checked ? 'flex' : 'none'; } });
+
+populationEl.addEventListener('change', ()=>{ buildPopulation(); });
+moveLimitEl.addEventListener('change', ()=>{ if(population){ population.individuals.forEach(ind=>ind.game.moveLimit = parseInt(moveLimitEl.value)); } });
+gridSizeEl.addEventListener('change', ()=>{ buildPopulation(); });
+rewardEatEl.addEventListener('change', ()=>{ if(population) population.rewardConfig.eat = parseFloat(rewardEatEl.value); });
+penaltyDieEl.addEventListener('change', ()=>{ if(population) population.rewardConfig.die = parseFloat(penaltyDieEl.value); });
+penaltyAwayEl.addEventListener('change', ()=>{ if(population) population.rewardConfig.away = parseFloat(penaltyAwayEl.value); });
+
+
+let population; // assuming your original uses this
+const saveBtn = document.getElementById('saveBtn');
+const loadBtn = document.getElementById('loadBtn');
+const loadFile = document.getElementById('loadFile');
+
+saveBtn.onclick = () => {
+  if (population) savePopulation(population);
+  else alert('No population to save yet.');
+};
+
+loadBtn.onclick = () => loadFile.click();
+loadFile.onchange = async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  population = await loadPopulationFromFile(file);
+  alert(`Loaded generation ${population.generation} with ${population.individuals.length} snakes.`);
+  // If your UI shows stats, update them:
+  document.getElementById('generation').textContent = population.generation;
+  document.getElementById('bestEver').textContent = Math.round(population.bestEverScore);
+  document.getElementById('bestFoodEver').textContent = population.bestFoodEver;
+};
+
+buildPopulation();
+
+// -----------------------------
+// Graph Tracking (Last 50 generations) — with value labels
+// -----------------------------
+const graphCanvas = document.getElementById('graphCanvas');
+const gctx = graphCanvas.getContext('2d');
+const graphFoodBtn = document.getElementById('graphFoodBtn');
+const graphFitnessBtn = document.getElementById('graphFitnessBtn');
+const graphAvgFoodBtn = document.getElementById('graphAvgFoodBtn');
+const graphHideBtn = document.getElementById('graphHideBtn');
+
+let graphMode = null;
+let graphData = {
+  generations: [],
+  bestFood: [],
+  bestFitness: [],
+  avgFood: []
+};
+
+function updateGraphData(gen, bestFood, bestFitness, avgFood){
+  if(graphData.generations.length >= 100){
+    graphData.generations.shift();
+    graphData.bestFood.shift();
+    graphData.bestFitness.shift();
+    graphData.avgFood.shift();
+  }
+  graphData.generations.push(gen);
+  graphData.bestFood.push(bestFood);
+  graphData.bestFitness.push(bestFitness);
+  graphData.avgFood.push(avgFood);
+}
+
+function drawGraph(){
+  if(!graphMode || graphData.generations.length === 0) return;
+  graphCanvas.style.display = 'block';
+  gctx.clearRect(0,0,graphCanvas.width,graphCanvas.height);
+
+  const w = graphCanvas.width;
+  const h = graphCanvas.height;
+  const vals =
+    graphMode === 'food' ? graphData.bestFood :
+    graphMode === 'fitness' ? graphData.bestFitness :
+    graphData.avgFood;
+
+  const maxVal = Math.max(...vals);
+  const minVal = 0;
+  const color =
+    graphMode === 'food' ? '#ffb347' :
+    graphMode === 'fitness' ? '#22c55e' :
+    '#60a5fa';
+
+  // Draw axes
+  gctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  gctx.lineWidth = 1;
+  gctx.beginPath();
+  gctx.moveTo(30,10);
+  gctx.lineTo(30,h-20);
+  gctx.lineTo(w-10,h-20);
+  gctx.stroke();
+
+  // Draw Y-axis labels
+  gctx.fillStyle = '#9aa7bf';
+  gctx.font = '10px Inter, system-ui, sans-serif';
+  gctx.textAlign = 'right';
+  gctx.textBaseline = 'middle';
+  const numTicks = 5;
+  for(let i=0;i<=numTicks;i++){
+    const val = minVal + (maxVal-minVal)*(1 - i/numTicks);
+    const y = 10 + i*( (h-30)/numTicks );
+    gctx.fillText(val.toFixed(1), 28, y);
+  }
+
+  // Draw data line
+  gctx.strokeStyle = color;
+  gctx.lineWidth = 2;
+  gctx.beginPath();
+  for(let i=0;i<vals.length;i++){
+    const x = 30 + (i/(vals.length-1)) * (w-100);
+    const y = h - 20 - ((vals[i]-minVal)/(maxVal-minVal || 1)) * (h-30);
+    if(i===0) gctx.moveTo(x,y); else gctx.lineTo(x,y);
+  }
+  gctx.stroke();
+}
+
+// helper to reset button styles
+function resetGraphButtonStyles(){
+  const all = [graphFoodBtn, graphFitnessBtn, graphAvgFoodBtn];
+  for(const b of all){
+    b.style.background = 'var(--accent)';
+    b.style.color = '#042018';
+  }
+}
+
+// button handlers with active-color feedback
+graphFoodBtn.onclick = ()=>{
+  graphMode = 'food';
+  resetGraphButtonStyles();
+  graphFoodBtn.style.background = '#ffb347';
+  graphFoodBtn.style.color = '#000';
+  drawGraph();
+};
+
+graphFitnessBtn.onclick = ()=>{
+  graphMode = 'fitness';
+  resetGraphButtonStyles();
+  graphFitnessBtn.style.background = '#22c55e';
+  graphFitnessBtn.style.color = '#000';
+  drawGraph();
+};
+
+graphAvgFoodBtn.onclick = ()=>{
+  graphMode = 'avgFood';
+  resetGraphButtonStyles();
+  graphAvgFoodBtn.style.background = '#60a5fa';
+  graphAvgFoodBtn.style.color = '#000';
+  drawGraph();
+};
+
+graphHideBtn.onclick = ()=>{
+  graphMode = null;
+  graphCanvas.style.display = 'none';
+  resetGraphButtonStyles();
+};
+
+// hook into generation end (inside stepTick)
+const oldProduce = Population.prototype.produceNextGeneration;
+Population.prototype.produceNextGeneration = function(){
+  updateGraphData(this.generation, this.bestFoodGen, this.bestThisGen?.game.fitness||0, this.avgFood);
+  drawGraph();
+  oldProduce.call(this);
+};
+
+
+</script>
+</body>
+</html>
